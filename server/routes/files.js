@@ -5,6 +5,7 @@ const { v4: uuidv4 } = require("uuid");
 
 const File = require("../models/file");
 const { APP_BASE_URL } = require("../config/env");
+const sendMail = require("../services/emailService");
 
 let storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, "uploads/"),
@@ -42,12 +43,38 @@ router.post("/", (req, res) => {
   });
 });
 
-router.post("/send", (req, res) => {
+router.post("/send", async (req, res) => {
   const { uuid, emailTo, emailFrom } = req.body;
 
   if (!uuid || !emailFrom || !emailTo) {
     return res.status(422).send({ error: "All fields are required" });
   }
+
+  // Get data from database
+  const file = File.findOne({ uuid: uuid });
+
+  if (file.sender) {
+    return res.status(422).send({ error: "Email already sent." });
+  }
+
+  file.sender = emailFrom;
+  file.receiver = emailTo;
+
+  const response = await file.save();
+
+  // Send email
+  sendMail({
+    from: emailFrom,
+    to: emailTo,
+    subject: "File Sharing",
+    text: `${emailFrom} shared a file with you,`,
+    html: require("../services/emailTemplate")({
+      emailFrom: emailFrom,
+      downloadLink: `${APP_BASE_URL}/files/${file.uuid}`,
+      size: parseInt(file.size / 1000) + "KB",
+      expires: "24 hours",
+    }),
+  });
 });
 
 module.exports = router;
